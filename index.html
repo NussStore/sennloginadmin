@@ -9,83 +9,87 @@
 <style>
 
 body{
-font-family:Arial;
-background:#0f0f1a;
-color:white;
+font-family:monospace;
+background:#050510;
+color:#00ff9c;
 margin:0;
-padding:0;
 }
 
 header{
 text-align:center;
-font-size:22px;
 padding:15px;
-font-weight:bold;
-background:#151525;
+font-size:22px;
+background:#000;
+box-shadow:0 0 10px #00ff9c;
 }
 
 .container{
 padding:15px;
-max-width:500px;
+max-width:600px;
 margin:auto;
 }
 
 .card{
-background:#1a1a2b;
+background:#0a0a1a;
+border:1px solid #00ff9c;
 padding:15px;
 border-radius:10px;
 margin-bottom:15px;
+box-shadow:0 0 10px #00ff9c33;
 }
 
-h3{
-margin-top:0;
-}
-
-input{
+input,select{
 width:100%;
 padding:12px;
 margin-top:8px;
 margin-bottom:10px;
 border:none;
-border-radius:8px;
-background:#2a2a40;
-color:white;
-font-size:14px;
+border-radius:6px;
+background:#020210;
+color:#00ff9c;
 }
 
 button{
 width:100%;
 padding:12px;
 border:none;
-border-radius:8px;
+border-radius:6px;
 background:#00ff9c;
 color:black;
 font-weight:bold;
-margin-top:5px;
+cursor:pointer;
+}
+
+.stats{
+font-size:16px;
+margin-bottom:10px;
 }
 
 .user{
-background:#111122;
-padding:12px;
+border:1px solid #00ff9c33;
+padding:10px;
 border-radius:8px;
 margin-top:10px;
 }
 
 .actions{
-margin-top:8px;
 display:flex;
 gap:5px;
+margin-top:8px;
 }
 
 .actions button{
 flex:1;
-background:#00aaff;
-color:white;
-font-size:12px;
+font-size:11px;
 }
 
 .delete{
-background:#ff4d4d !important;
+background:#ff4444;
+color:white;
+}
+
+.edit{
+background:#ffaa00;
 }
 
 </style>
@@ -105,6 +109,12 @@ NANZ USER PANEL
 
 <input id="username" placeholder="Username">
 
+<select id="expiryType">
+<option value="manual">Manual Expiry</option>
+<option value="7">Auto 7 Days</option>
+<option value="30">Auto 30 Days</option>
+</select>
+
 <input id="expiry" type="date">
 
 <input id="devices" type="number" placeholder="Devices">
@@ -113,9 +123,14 @@ NANZ USER PANEL
 
 </div>
 
+
 <div class="card">
 
-<h3>User List</h3>
+<div class="stats">
+Total Users : <span id="total">0</span>
+</div>
+
+<input id="search" placeholder="Search user..." oninput="renderUsers()">
 
 <div id="users"></div>
 
@@ -127,6 +142,8 @@ NANZ USER PANEL
 <script>
 
 const DB="https://senn-1d763-default-rtdb.firebaseio.com/users";
+
+let allUsers={};
 
 function rand(){
 return Math.floor(1000+Math.random()*9000);
@@ -144,33 +161,46 @@ return `${day}/${month}/${year}`;
 
 }
 
-function setMinDate(){
+function addDays(days){
 
-let today=new Date();
-let yyyy=today.getFullYear();
-let mm=("0"+(today.getMonth()+1)).slice(-2);
-let dd=("0"+today.getDate()).slice(-2);
-
-document.getElementById("expiry").min=`${yyyy}-${mm}-${dd}`;
+let d=new Date();
+d.setDate(d.getDate()+days);
+return formatDate(d);
 
 }
 
 async function createAccount(){
 
 let base=document.getElementById("username").value.trim();
-let expiry=document.getElementById("expiry").value;
+let expiryType=document.getElementById("expiryType").value;
+let expiryInput=document.getElementById("expiry").value;
 let devices=document.getElementById("devices").value;
 
-if(!base||!expiry||!devices){
-alert("Isi semua data");
+if(!base||!devices){
+alert("Isi data");
 return;
+}
+
+let expiry;
+
+if(expiryType=="7") expiry=addDays(7);
+else if(expiryType=="30") expiry=addDays(30);
+else{
+
+if(!expiryInput){
+alert("Isi expiry");
+return;
+}
+
+expiry=formatDate(expiryInput);
+
 }
 
 let username=`${base}-${rand()}-${rand()}`;
 let password=`${base}-${rand()}-${rand()}`;
 
 let data={
-expiry:formatDate(expiry),
+expiry:expiry,
 hwids:{place_holder:true},
 max_devices:parseInt(devices),
 password:password
@@ -181,7 +211,7 @@ method:"PUT",
 body:JSON.stringify(data)
 });
 
-alert("Akun berhasil dibuat");
+alert("User created");
 
 loadUsers();
 
@@ -192,11 +222,27 @@ async function loadUsers(){
 let res=await fetch(`${DB}.json`);
 let data=await res.json();
 
+if(!data) data={};
+
+allUsers=data;
+
+document.getElementById("total").innerText=Object.keys(data).length;
+
+renderUsers();
+
+}
+
+function renderUsers(){
+
+let search=document.getElementById("search").value.toLowerCase();
+
 let html="";
 
-for(let user in data){
+for(let user in allUsers){
 
-let u=data[user];
+if(!user.toLowerCase().includes(search)) continue;
+
+let u=allUsers[user];
 
 html+=`
 <div class="user">
@@ -214,6 +260,8 @@ Devices : ${u.max_devices}
 <button onclick="copy('${user}')">COPY USER</button>
 
 <button onclick="copy('${u.password}')">COPY PASS</button>
+
+<button class="edit" onclick="editExpiry('${user}')">EDIT EXP</button>
 
 <button class="delete" onclick="deleteUser('${user}')">DELETE</button>
 
@@ -248,7 +296,23 @@ loadUsers();
 
 }
 
-setMinDate();
+async function editExpiry(user){
+
+let newExp=prompt("New expiry (dd/mm/yyyy)");
+
+if(!newExp) return;
+
+await fetch(`${DB}/${user}.json`,{
+method:"PATCH",
+body:JSON.stringify({
+expiry:newExp
+})
+});
+
+loadUsers();
+
+}
+
 loadUsers();
 
 </script>
